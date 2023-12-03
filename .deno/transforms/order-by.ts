@@ -1,6 +1,6 @@
 import { IValue, _ISelection, _Transaction, _Explainer, _SelectExplanation, Stats, _IAggregation } from '../interfaces-private.ts';
 import { FilterBase } from './transform-base.ts';
-import { OrderByStatement, ExprCall } from 'https://deno.land/x/pgsql_ast_parser@10.5.2/mod.ts';
+import { OrderByStatement, ExprCall } from 'https://deno.land/x/pgsql_ast_parser@11.0.1/mod.ts';
 import { buildValue } from '../parser/expression-builder.ts';
 import { nullIsh } from '../utils.ts';
 import { withSelection } from '../parser/context.ts';
@@ -53,11 +53,14 @@ class OrderBy<T> extends FilterBase<any> implements _IAggregation {
     constructor(private selection: _ISelection<T>, order: OrderByStatement[]) {
         super(selection);
         this.order = withSelection(selection,
-            () => order.map(x => ({
-                by: buildValue(x.by),
-                order: x.order ?? 'ASC',
-                nullsLast: x.nulls === 'LAST',
-            })));
+            () => order.map(x => {
+                const order = x.order ?? 'ASC';
+                return ({
+                    by: buildValue(x.by),
+                    order,
+                    nullsLast: order === 'ASC' ? x.nulls !== 'FIRST' : x.nulls === 'LAST',
+                });
+            }));
     }
 
 
@@ -83,7 +86,7 @@ class OrderBy<T> extends FilterBase<any> implements _IAggregation {
                     continue;
                 }
                 if (na || nb) {
-                    return (o.order === 'ASC') === (nb === o.nullsLast) ? 1 : -1;
+                    return nb === o.nullsLast ? -1 : 1;
                 }
                 if (o.by.type.equals(aval, bval)) {
                     continue;

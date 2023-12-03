@@ -1,7 +1,11 @@
-import { LibAdapters, IMemoryDb, NotSupported, QueryResult } from '../interfaces.ts';
+import { LibAdapters, IMemoryDb, NotSupported, QueryResult, DataType } from '../interfaces.ts';
 import lru from 'https://deno.land/x/lru_cache@6.0.0-deno.4/mod.ts';
 import { compareVersions } from '../utils.ts';
 import { toLiteral } from '../misc/pg-utils.ts';
+import { _IType } from '../interfaces-private.ts';
+import { TYPE_SYMBOL } from '../execution/select.ts';
+import { ArrayType } from '../datatypes/index.ts';
+import { CustomEnumType } from '../datatypes/t-custom-enum.ts';
 declare var __non_webpack_require__: any;
 
 
@@ -122,10 +126,21 @@ export class Adapters implements LibAdapters {
                     ...res,
                     // clone rows to avoid leaking symbols
                     rows: res.rows.map(row => {
-                        return Object.entries(row).reduce((obj, [key, val]) => {
-                            obj[key] = val;
-                            return obj;
-                        }, {} as any);
+                        const rowCopy: any = {};
+                        // copy all
+                        for (const [k, v] of Object.entries(row)) {
+                            rowCopy[k] = v;
+                        }
+                        // ...but amend fields based on their types
+                        for (const f of res.fields) {
+                            const type = (f as any)[TYPE_SYMBOL] as _IType;
+                            const value = row[f.name];
+                            // enum arrays are returned as strings... see #224
+                            if (type instanceof ArrayType && type.of instanceof CustomEnumType && Array.isArray(value)) {
+                                rowCopy[f.name] = `{${value.join(',')}}`;
+                            }
+                        }
+                        return rowCopy;
                     }),
                     get fields() {
                         // to implement if needed ? (never seen a lib that uses it)
@@ -188,7 +203,8 @@ export class Adapters implements LibAdapters {
             throw new NotSupported('Only postgres supported, found ' + postgresOptions?.type ?? '<null>')
         }
 
-        const { DataSource } = __non_webpack_require__('typeorm')
+        const nr = __non_webpack_require__('typeorm');
+        const { DataSource } = nr;
         const created = new DataSource(postgresOptions);
         created.driver.postgres = that.createPg(queryLatency);
         return created;

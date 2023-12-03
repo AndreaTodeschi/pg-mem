@@ -18,7 +18,7 @@ import { INetType } from './t-inet';
 import { buildCtx } from '../parser/context';
 
 
-class UUIDtype extends TypeBase<Date> {
+class UUIDtype extends TypeBase<string> {
 
 
     get primary(): DataType {
@@ -367,7 +367,7 @@ class TextType extends TypeBase<string> {
                 }
                 return value
                     .setConversion(str => {
-                        if (str?.length > toStr.len!) {
+                        if (str && str.length > toStr.len!) {
                             throw new QueryError(`value too long for type character varying(${toStr.len})`);
                         }
                         return str;
@@ -431,6 +431,46 @@ class TextType extends TypeBase<string> {
 class BoolType extends TypeBase<boolean> {
     get primary(): DataType {
         return DataType.bool;
+    }
+
+    doCanCast(to: _IType): boolean | nil {
+        switch (to.primary) {
+            case DataType.text:
+            case DataType.citext:
+            case DataType.bool:
+            case DataType.integer:
+                return true;
+        }
+        return false;
+    }
+
+    doCast(value: Evaluator, to: _IType) {
+        switch (to.primary) {
+            case DataType.text:
+            case DataType.citext:
+                return new Evaluator(
+                  to
+                  , value.id
+                  , value.hash!
+                  , value
+                  , (raw, t) => {
+                      const got = value.get(raw, t);
+                      return got ? 'true' : 'false';
+                  });
+            case DataType.bool:
+                return value;
+            case DataType.integer:
+                return new Evaluator(
+                  to
+                  , value.id
+                  , value.hash!
+                  , value
+                  , (raw, t) => {
+                      const got = value.get(raw, t);
+                      return got ? 1 : 0;
+                  });
+        }
+        throw new Error('Unexpected cast error');
     }
 }
 
@@ -664,7 +704,7 @@ function makeTimestamp(primary: DataType, len: number | nil = null) {
 
 
 
-export const typeSynonyms: { [key: string]: DataType } = {
+export const typeSynonyms: { [key: string]: DataType | { type: DataType; ignoreConfig: boolean } } = {
     'varchar': DataType.text,
     'char': DataType.text,
     'character': DataType.text,
@@ -682,7 +722,7 @@ export const typeSynonyms: { [key: string]: DataType } = {
     'decimal': DataType.float,
     'float': DataType.float,
     'double precision': DataType.float,
-    'numeric': DataType.float,
+    'numeric': { type: DataType.float, ignoreConfig: true },
     'real': DataType.float,
     'money': DataType.float,
 

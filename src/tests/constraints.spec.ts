@@ -38,11 +38,35 @@ describe('Constraints', () => {
         )`);
     });
 
+    it('names primary keys with the right name', () => {
+        none(`create table test(a text, b text, c text, primary key(a,b));
+            alter table test drop constraint test_pkey;
+            alter table test add primary key (a, b, c);
+        `);
+    });
+
     it('can drop an index via drop constraint', () => {
         none(`create table test(id text);
             alter table test add constraint abc unique (id);
             alter table test drop constraint abc;
             insert into test values ('a'), ('a');
+        `);
+    });
+
+    it('can create and drop a constraint and index on the same column', () => {
+        none(`create table test (col text);
+            alter table test add constraint uq unique (col);
+            create index idx on test(col);
+            drop index idx;
+            alter table test drop constraint uq;
+        `);
+    });
+
+    it('can drop an index via drop constraint, and then drop the column', () => {
+        none(`create table test(id text, col text);
+            alter table test add constraint abc unique (col);
+            alter table test drop constraint abc;
+            alter table test drop column col;
         `);
     });
 

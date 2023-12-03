@@ -1,5 +1,5 @@
 import { IMigrate } from './migrate/migrate-interfaces.ts';
-import { TableConstraint, CreateColumnDef, NodeLocation, DataTypeDef, FunctionArgumentMode, BinaryOperator, Statement } from 'https://deno.land/x/pgsql_ast_parser@10.5.2/mod.ts';
+import { TableConstraint, CreateColumnDef, NodeLocation, DataTypeDef, FunctionArgumentMode, BinaryOperator, Statement } from 'https://deno.land/x/pgsql_ast_parser@11.0.1/mod.ts';
 
 
 export type nil = undefined | null;
@@ -159,7 +159,7 @@ export type LanguageCompiler = (options: ToCompile) => CompiledFunction;
 
 export interface ToCompile {
     /** Function being compiled (null for "DO" statements compilations) */
-    functioName?: string | nil;
+    functionName?: string | nil;
     /** Code to compile */
     code: string;
     /** Schema against which this compilation is performed */
@@ -258,6 +258,11 @@ export interface ISchema {
      */
     getTable(table: string): IMemoryTable;
     getTable(table: string, nullIfNotFound?: boolean): IMemoryTable | null;
+
+    /**
+     * List all tables in this schema
+     */
+    listTables(): Iterable<IMemoryTable>
 
     /** Register a function */
     registerFunction(fn: FunctionDefinition, orReplace?: boolean): this;
@@ -369,21 +374,35 @@ export interface FieldInfo {
 export type TableEvent = 'seq-scan';
 export type GlobalEvent = 'query' | 'query-failed' | 'catastrophic-join-optimization' | 'schema-change' | 'create-extension';
 
-export interface IMemoryTable<T = any> {
+export interface IMemoryTable<T = unknown> {
+    readonly name: string;
+    readonly primaryIndex: IndexDef | nil;
+
+    /** List columns in this table */
+    getColumns(): Iterable<ColumnDef>;
+
     /** Subscribe to an event on this table */
     on(event: TableEvent, handler: () => any): ISubscription;
     /** List existing indices defined on this table */
     listIndices(): IndexDef[];
+
 
     /**
      * Inserts a raw item into this table.
      * ⚠ Neither the record you provided, nor the returned value are the actual item stored. You wont be able to mutate internal state.
      * @returns A copy of the inserted item (with assigned defaults)
      */
-    insert(item: Partial<T>): T;
+    insert(item: Partial<T>): T | null;
 
     /** Find all items matching a specific template */
     find(template?: Partial<T> | nil, columns?: (keyof T)[]): Iterable<T>;
+}
+
+
+export interface ColumnDef {
+    readonly name: string;
+    readonly type: IType;
+    readonly nullable: boolean;
 }
 
 
@@ -392,8 +411,8 @@ export interface ISubscription {
 }
 
 export interface IndexDef {
-    name: string;
-    expressions: string[];
+    readonly name: string;
+    readonly expressions: string[];
 }
 
 export class NotSupported extends Error {
@@ -415,11 +434,16 @@ interface ErrorData {
 }
 export class QueryError extends Error {
     readonly data: ErrorData;
+    readonly code: string | undefined;
     constructor(err: string | ErrorData, code?: string) {
         super(typeof err === 'string' ? err : errDataToStr(err));
-        this.data = typeof err === 'string'
-            ? { error: err, code }
-            : err;
+        if (typeof err === 'string') {
+            this.data = { error: err, code };
+            this.code = code;
+        } else {
+            this.data = err;
+            this.code = err.code;
+        }
     }
 }
 

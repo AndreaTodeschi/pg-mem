@@ -1,7 +1,7 @@
 import 'mocha';
 import 'chai';
 import { newDb } from '../db';
-import { IMemoryDb } from '../interfaces';
+import { IMemoryDb, QueryResult } from '../interfaces';
 import { assert, expect } from 'chai';
 
 describe('Inserts', () => {
@@ -103,6 +103,35 @@ describe('Inserts', () => {
         }]);
     });
 
+    it('supports on conflict on constraint, and sets the right default constraint name', () => {
+
+        // example from https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-upsert/
+        none(`
+        CREATE TABLE customers (
+            customer_id serial PRIMARY KEY,
+            name VARCHAR UNIQUE,
+            email VARCHAR NOT NULL,
+            active bool NOT NULL DEFAULT TRUE
+        );
+
+        INSERT INTO
+            customers (name, email)
+        VALUES
+            ('IBM', 'contact@ibm.com'),
+            ('Microsoft', 'contact@microsoft.com'),
+            ('Intel', 'contact@intel.com');
+
+
+           INSERT INTO customers (NAME, email)
+        VALUES('Microsoft','hotline@microsoft.com')
+        ON CONFLICT ON CONSTRAINT customers_name_key
+        DO NOTHING;`);
+
+        expect(many(`select email from customers where name = 'Microsoft'`)).to.deep.equal([{
+            email: 'contact@microsoft.com'
+        }]);
+    })
+
     it('does not update when where is NOK on conflict', () => {
         // https://github.com/oguimbal/pg-mem/issues/168
         onConflictWhere();
@@ -165,12 +194,12 @@ describe('Inserts', () => {
             .to.deep.equal([{ ka: 'a', kb: 1, val: 'newA' }]);
     });
 
-    it('returns the right thing on conflict', () => {
+    it('does not returns on conflict do nothing', () => {
         expect(many(`create table test(ka text, kb integer, val text,  primary key (ka, kb));
                         insert into test values ('a', 1, 'oldA');
                         insert into test values ('a', 1, 'whatever')
                             on conflict do nothing returning val;`))
-            .to.deep.equal([{ val: 'oldA' }]);
+            .to.deep.equal([]);
     });
 
 
@@ -207,7 +236,17 @@ describe('Inserts', () => {
                         insert into test(val) values ('x');
                         select id from test`))
             .to.deep.equal([{ id: 1 }]);
-    })
+    });
+
+    it('allow on conflict when there is a unique index and a primary key', () => {
+
+        none(`CREATE TABLE "user" ("name" text primary key, cnt int not null default 0);
+                create index user_by_name on "user"(name);
+                insert into "user"(name) values ('toto');`);
+
+        // used to throw an error:
+        none(`insert into "user"(name) values ('toto') on conflict(name) do update set cnt = excluded.cnt + 1;`);
+    });
 
     it('[bugfix] allows returning statement', () => {
         expect(many(`CREATE TABLE "user" ("id" SERIAL NOT NULL, "name" text NOT NULL, CONSTRAINT "PK_cace4a159ff9f2512dd42373760" PRIMARY KEY ("id"));
